@@ -33,6 +33,10 @@ let exampleEmail: ForwardableEmailMessage = {
 		console.log(`Forwarding to ${rcptTo}`);
 		return Promise.resolve();
 	},
+	reply(message) {
+		console.log(`Replying to ${this.from} with message from ${message.from}`);
+		return Promise.resolve();
+	},
 };
 
 describe('Octomailer worker', () => {

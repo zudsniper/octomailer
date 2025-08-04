@@ -60,18 +60,50 @@ async function createIssue(message: ForwardableEmailMessage, env: Env, octokit: 
 
 export default {
 	async email(message: ForwardableEmailMessage, env: Env, ctx: ExecutionContext): Promise<void> {
-		const user = env.GITHUB_USERNAME;
-		const repo = env.GITHUB_REPO;
-		const token = env.GITHUB_TOKEN;
+		try {
+			// Validate required environment variables
+			const user = env.GITHUB_USERNAME;
+			const repo = env.GITHUB_REPO;
+			const token = env.GITHUB_TOKEN;
 
-		if (!user || !repo || !token) {
-			throw new MissingEnvVariablesError();
+			if (!user || !repo || !token) {
+				const error = new MissingEnvVariablesError();
+				console.error('Missing environment variables:', error.message);
+				throw error;
+			}
+
+			// Initialize Octokit
+			const octokit = new Octokit({
+				auth: token,
+			});
+
+			// Process the email and create GitHub issue
+			// Use ctx.waitUntil to ensure the async operation completes even if the handler returns
+			const issueCreationPromise = createIssue(message, env, octokit)
+				.then(() => {
+					console.log('Email processed successfully and GitHub issue created');
+				})
+				.catch((error) => {
+					console.error('Failed to process email:', error);
+					// Log additional error details for debugging
+					if (error instanceof CreateIssueError) {
+						console.error('Original error:', error.originalError);
+					}
+					// Re-throw to ensure the email handler reports failure
+					throw error;
+				});
+
+			// Use waitUntil to ensure the issue creation completes
+			ctx.waitUntil(issueCreationPromise);
+
+			// Wait for the operation to complete before returning
+			await issueCreationPromise;
+		} catch (error) {
+			// Log the error for debugging purposes
+			console.error('Email handler error:', error);
+			
+			// Re-throw the error to ensure proper error handling by the Workers runtime
+			throw error;
 		}
-
-		const octokit = new Octokit({
-			auth: token,
-		});
-
-		return createIssue(message, env, octokit);
 	},
 };
