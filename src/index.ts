@@ -15,10 +15,18 @@ class MissingEnvVariablesError extends Error {
 	}
 }
 
+interface EmailAttachment {
+	filename: string;
+	contentType: string;
+	data: Uint8Array;
+	cid?: string; // Content-ID for inline images
+}
+
 interface ParsedEmail {
 	body: string;
 	from: string;
 	subject: string;
+	attachments: EmailAttachment[];
 }
 
 async function streamToText(stream: ReadableStream<Uint8Array>): Promise<string> {
@@ -37,7 +45,77 @@ async function streamToText(stream: ReadableStream<Uint8Array>): Promise<string>
 }
 
 /**
- * Parse email content to extract clean body text
+ * Helper function to parse attachments from multipart email
+ */
+function parseAttachments(rawData: string): EmailAttachment[] {
+	const attachments: EmailAttachment[] = [];
+	let boundary = '';
+
+	// Try different boundary formats
+	const boundaryMatch = rawData.match(/boundary="?([^"\s;]+)"?/i);
+	if (boundaryMatch) {
+		boundary = boundaryMatch[1];
+	} else {
+		return attachments; // No boundary found, no multipart content
+	}
+
+	// Split data by boundary
+	const parts = rawData.split(new RegExp(`--${boundary.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`, 'g'));
+
+	for (const part of parts) {
+		if (!part.trim()) continue;
+
+		// Look for Content-Type and Content-Disposition headers
+		const contentTypeMatch = part.match(/Content-Type:\s*([^\s;]+)/i);
+		const contentDispositionMatch = part.match(/Content-Disposition:\s*(?:attachment|inline)[^;]*;\s*filename="?([^"\n\r;]+)"?/i);
+		const contentIDMatch = part.match(/Content-ID:\s*<([^>]+)>/i);
+		const contentTransferEncodingMatch = part.match(/Content-Transfer-Encoding:\s*(\S+)/i);
+
+		if (contentTypeMatch && (contentDispositionMatch || contentIDMatch)) {
+			const contentType = contentTypeMatch[1].toLowerCase();
+			const filename = contentDispositionMatch ? contentDispositionMatch[1] : (contentIDMatch ? contentIDMatch[1] : 'attachment');
+			const cid = contentIDMatch ? contentIDMatch[1] : undefined;
+			const encoding = contentTransferEncodingMatch ? contentTransferEncodingMatch[1].toLowerCase() : 'base64';
+
+			// Find the actual data after headers (double newline separator)
+			const headerEndIndex = part.indexOf('\n\n');
+			if (headerEndIndex === -1) continue;
+			
+			const rawData = part.substring(headerEndIndex + 2).trim();
+			if (!rawData) continue;
+
+			// Decode based on encoding
+			let data: Uint8Array;
+			try {
+				if (encoding === 'base64') {
+					// Clean up base64 data (remove whitespace and newlines)
+					const cleanBase64 = rawData.replace(/\s/g, '');
+					data = new Uint8Array(Buffer.from(cleanBase64, 'base64'));
+				} else if (encoding === 'quoted-printable') {
+					// Basic quoted-printable decoding
+					const decoded = rawData.replace(/=([0-9A-F]{2})/g, (_, hex) => String.fromCharCode(parseInt(hex, 16)));
+					data = new TextEncoder().encode(decoded);
+				} else {
+					// Default to treating as text
+					data = new TextEncoder().encode(rawData);
+				}
+				
+				// Only include image attachments for now
+				if (contentType.startsWith('image/')) {
+					attachments.push({ filename, contentType, data, cid });
+				}
+			} catch (error) {
+				console.log('Error decoding attachment:', error);
+				continue;
+			}
+		}
+	}
+
+	return attachments;
+}
+
+/**
+ * Parse email content to extract clean body text and attachments
  */
 function parseEmailContent(rawEmail: string): ParsedEmail {
 	// Split the email into lines for processing
@@ -142,7 +220,10 @@ function parseEmailContent(rawEmail: string): ParsedEmail {
 		.join('\n')
 		.trim();
 
-	return { body, from, subject };
+	// Parse attachments
+	const attachments = parseAttachments(rawEmail);
+
+	return { body, from, subject, attachments };
 }
 
 /**
@@ -255,6 +336,30 @@ async function findGitHubUserByEmail(email: string, octokit: Octokit, repoOwner:
 	}
 }
 
+async function uploadImageToGitHub(fileName: string, data: Uint8Array, env: Env, octokit: Octokit): Promise<string | null> {
+    try {
+        const response = await octokit.request('POST /repos/{owner}/{repo}/contents/{path}', {
+            owner: env.GITHUB_USERNAME,
+            repo: env.GITHUB_REPO,
+            path: `images/${fileName}`,
+            message: `Add image ${fileName}`,
+            content: Buffer.from(data).toString('base64'),
+            committer: {
+                name: env.GITHUB_USERNAME,
+                email: `${env.GITHUB_USERNAME}@users.noreply.github.com`
+            },
+            author: {
+                name: env.GITHUB_USERNAME,
+                email: `${env.GITHUB_USERNAME}@users.noreply.github.com`
+            }
+        });
+        return response.data.content.html_url;
+    } catch (error) {
+        console.error('Failed to upload image:', error);
+        return null;
+    }
+}
+
 async function createIssue(message: ForwardableEmailMessage, env: Env, octokit: Octokit): Promise<void> {
 	let parsedEmail: ParsedEmail;
 
@@ -276,7 +381,8 @@ async function createIssue(message: ForwardableEmailMessage, env: Env, octokit: 
 		console.log('Parsed email:', {
 			subject: messageTitle,
 			from: parsedEmail.from,
-			bodyLength: parsedEmail.body.length
+			bodyLength: parsedEmail.body.length,
+			attachmentsCount: parsedEmail.attachments.length
 		});
 		
 		// Extract sender email address
@@ -287,8 +393,51 @@ async function createIssue(message: ForwardableEmailMessage, env: Env, octokit: 
 		const githubUser = await findGitHubUserByEmail(senderEmail, octokit, env.GITHUB_USERNAME, env.GITHUB_REPO);
 		console.log('Found GitHub user:', githubUser);
 		
+		// Process image attachments
+		const imageUploadPromises = parsedEmail.attachments.map(async (attachment) => {
+			// Generate a unique filename with timestamp
+			const timestamp = Date.now();
+			const safeName = attachment.filename.replace(/[^a-zA-Z0-9.-]/g, '_');
+			const uniqueFileName = `${timestamp}_${safeName}`;
+			
+			const imageUrl = await uploadImageToGitHub(uniqueFileName, attachment.data, env, octokit);
+			if (imageUrl) {
+				return {
+					originalName: attachment.filename,
+					uniqueFileName,
+					imageUrl,
+					cid: attachment.cid
+				};
+			}
+			return null;
+		});
+		
+		// Wait for all image uploads to complete
+		const uploadedImages = (await Promise.all(imageUploadPromises)).filter(Boolean);
+		
+		console.log(`Uploaded ${uploadedImages.length} images`);
+		
 		// Prepare issue body - clean email content only
 		let issueBody = parsedEmail.body;
+		
+		// Replace inline image references with GitHub URLs
+		for (const image of uploadedImages) {
+			if (image && image.cid) {
+				// Replace cid references in HTML/text content
+				const cidPattern = new RegExp(`cid:${image.cid}`, 'gi');
+				issueBody = issueBody.replace(cidPattern, image.imageUrl);
+			}
+		}
+		
+		// Add all images as attachments at the end of the issue
+		if (uploadedImages.length > 0) {
+			issueBody += '\n\n## Attachments\n\n';
+			for (const image of uploadedImages) {
+				if (image) {
+					issueBody += `![${image.originalName}](${image.imageUrl})\n\n`;
+				}
+			}
+		}
 		
 		// If sender is a known GitHub user, include attribution
 		if (githubUser && senderEmail) {
