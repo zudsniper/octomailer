@@ -1,5 +1,6 @@
 // src/index.ts
 import { Octokit } from '@octokit/core';
+import PostalMime from 'postal-mime';
 
 class CreateIssueError extends Error {
 	constructor(message: string, public originalError: any) {
@@ -45,79 +46,61 @@ async function streamToText(stream: ReadableStream<Uint8Array>): Promise<string>
 }
 
 /**
- * Helper function to parse attachments from multipart email
+ * Helper function to parse attachments from multipart email using postal-mime
  */
-function parseAttachments(rawData: string): EmailAttachment[] {
-	const attachments: EmailAttachment[] = [];
-	let boundary = '';
-
-	// Try different boundary formats
-	const boundaryMatch = rawData.match(/boundary="?([^"\s;]+)"?/i);
-	if (boundaryMatch) {
-		boundary = boundaryMatch[1];
-	} else {
-		return attachments; // No boundary found, no multipart content
-	}
-
-	// Split data by boundary
-	const parts = rawData.split(new RegExp(`--${boundary.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`, 'g'));
-
-	for (const part of parts) {
-		if (!part.trim()) continue;
-
-		// Look for Content-Type and Content-Disposition headers
-		const contentTypeMatch = part.match(/Content-Type:\s*([^\s;]+)/i);
-		const contentDispositionMatch = part.match(/Content-Disposition:\s*(?:attachment|inline)[^;]*;\s*filename="?([^"\n\r;]+)"?/i);
-		const contentIDMatch = part.match(/Content-ID:\s*<([^>]+)>/i);
-		const contentTransferEncodingMatch = part.match(/Content-Transfer-Encoding:\s*(\S+)/i);
-
-		if (contentTypeMatch && (contentDispositionMatch || contentIDMatch)) {
-			const contentType = contentTypeMatch[1].toLowerCase();
-			const filename = contentDispositionMatch ? contentDispositionMatch[1] : (contentIDMatch ? contentIDMatch[1] : 'attachment');
-			const cid = contentIDMatch ? contentIDMatch[1] : undefined;
-			const encoding = contentTransferEncodingMatch ? contentTransferEncodingMatch[1].toLowerCase() : 'base64';
-
-			// Find the actual data after headers (double newline separator)
-			const headerEndIndex = part.indexOf('\n\n');
-			if (headerEndIndex === -1) continue;
-			
-			const rawData = part.substring(headerEndIndex + 2).trim();
-			if (!rawData) continue;
-
-			// Decode based on encoding
-			let data: Uint8Array;
-			try {
-				if (encoding === 'base64') {
-					// Clean up base64 data (remove whitespace and newlines)
-					const cleanBase64 = rawData.replace(/\s/g, '');
-					data = new Uint8Array(Buffer.from(cleanBase64, 'base64'));
-				} else if (encoding === 'quoted-printable') {
-					// Basic quoted-printable decoding
-					const decoded = rawData.replace(/=([0-9A-F]{2})/g, (_, hex) => String.fromCharCode(parseInt(hex, 16)));
-					data = new TextEncoder().encode(decoded);
-				} else {
-					// Default to treating as text
-					data = new TextEncoder().encode(rawData);
-				}
-				
-				// Only include image attachments for now
-				if (contentType.startsWith('image/')) {
-					attachments.push({ filename, contentType, data, cid });
-				}
-			} catch (error) {
-				console.log('Error decoding attachment:', error);
-				continue;
-			}
-		}
-	}
-
-	return attachments;
+async function parseAttachments(rawData: string): Promise<EmailAttachment[]> {
+    const attachments: EmailAttachment[] = [];
+    
+    try {
+        const parser = new PostalMime();
+        const email = await parser.parse(rawData);
+        
+        console.log('Parsed email with postal-mime, attachments count:', email.attachments?.length || 0);
+        
+        if (email.attachments) {
+            for (const attachment of email.attachments) {
+                if (attachment.mimeType?.startsWith('image/')) {
+                    console.log(`Found image attachment: ${attachment.filename}, type: ${attachment.mimeType}`);
+                    console.log(`Attachment content type: ${typeof attachment.content}, isArrayBuffer: ${attachment.content instanceof ArrayBuffer}`);
+                    console.log(`Attachment encoding: ${attachment.encoding}`);
+                    
+                    // Convert ArrayBuffer to Uint8Array
+                    let data: Uint8Array;
+                    if (attachment.content instanceof ArrayBuffer) {
+                        data = new Uint8Array(attachment.content);
+                    } else if (typeof attachment.content === 'string') {
+                        // If content is a string (base64), decode it
+                        const binaryString = atob(attachment.content);
+                        data = new Uint8Array(binaryString.length);
+                        for (let i = 0; i < binaryString.length; i++) {
+                            data[i] = binaryString.charCodeAt(i);
+                        }
+                    } else {
+                        data = new Uint8Array(0);
+                    }
+                    
+                    console.log(`Image data size after conversion: ${data.length} bytes`);
+                    
+                    attachments.push({
+                        filename: attachment.filename || 'image',
+                        contentType: attachment.mimeType,
+                        data: data,
+                        cid: attachment.contentId
+                    });
+                }
+            }
+        }
+    } catch (error) {
+        console.error('Error parsing email with postal-mime:', error);
+    }
+    
+    return attachments;
 }
 
 /**
  * Parse email content to extract clean body text and attachments
  */
-function parseEmailContent(rawEmail: string): ParsedEmail {
+async function parseEmailContent(rawEmail: string): Promise<ParsedEmail> {
 	// Split the email into lines for processing
 	const lines = rawEmail.split('\n');
 	let headerSection = true;
@@ -215,13 +198,15 @@ function parseEmailContent(rawEmail: string): ParsedEmail {
 		.replace(/--[0-9a-f]+--/g, '')
 		.replace(/^Content-Type:.*$/gm, '')
 		.replace(/^Content-Transfer-Encoding:.*$/gm, '')
+		.replace(/\[image:\s*[^\]]*\]/gi, '') // Remove [image: filename] placeholders
+		.replace(/\[cid:[^\]]*\]/gi, '') // Remove [cid:...] references
 		.split('\n')
 		.filter(line => line.trim() !== '')
 		.join('\n')
 		.trim();
 
 	// Parse attachments
-	const attachments = parseAttachments(rawEmail);
+	const attachments = await parseAttachments(rawEmail);
 
 	return { body, from, subject, attachments };
 }
@@ -336,26 +321,44 @@ async function findGitHubUserByEmail(email: string, octokit: Octokit, repoOwner:
 	}
 }
 
-async function uploadImageToGitHub(fileName: string, data: Uint8Array, env: Env, octokit: Octokit): Promise<string | null> {
+async function uploadImageToImgur(fileName: string, data: Uint8Array): Promise<string | null> {
     try {
-        const response = await octokit.request('POST /repos/{owner}/{repo}/contents/{path}', {
-            owner: env.GITHUB_USERNAME,
-            repo: env.GITHUB_REPO,
-            path: `images/${fileName}`,
-            message: `Add image ${fileName}`,
-            content: Buffer.from(data).toString('base64'),
-            committer: {
-                name: env.GITHUB_USERNAME,
-                email: `${env.GITHUB_USERNAME}@users.noreply.github.com`
+        // Convert Uint8Array to base64 without using Buffer (not available in Workers)
+        let binary = '';
+        for (let i = 0; i < data.length; i++) {
+            binary += String.fromCharCode(data[i]);
+        }
+        const base64Content = btoa(binary);
+        
+        // Upload to Imgur anonymously
+        const response = await fetch('https://api.imgur.com/3/image', {
+            method: 'POST',
+            headers: {
+                'Authorization': 'Client-ID 546c25a59c58ad7',
+                'Content-Type': 'application/json'
             },
-            author: {
-                name: env.GITHUB_USERNAME,
-                email: `${env.GITHUB_USERNAME}@users.noreply.github.com`
-            }
+            body: JSON.stringify({
+                image: base64Content,
+                type: 'base64',
+                name: fileName
+            })
         });
-        return response.data.content.html_url;
+        
+        if (!response.ok) {
+            console.error('Imgur API error:', response.status, await response.text());
+            return null;
+        }
+        
+        const result = await response.json();
+        if (result.success && result.data) {
+            console.log(`Successfully uploaded image to Imgur: ${result.data.link}`);
+            return result.data.link;
+        } else {
+            console.error('Imgur upload failed:', result);
+            return null;
+        }
     } catch (error) {
-        console.error('Failed to upload image:', error);
+        console.error('Failed to upload image to Imgur:', error);
         return null;
     }
 }
@@ -368,7 +371,7 @@ async function createIssue(message: ForwardableEmailMessage, env: Env, octokit: 
 		const rawEmailContent = await streamToText(message.raw);
 		
 		// Parse the email to extract clean content
-		parsedEmail = parseEmailContent(rawEmailContent);
+		parsedEmail = await parseEmailContent(rawEmailContent);
 		
 		// Check for subject and meaningful body
 		if (!parsedEmail.subject.trim() || !parsedEmail.body.trim()) {
@@ -400,7 +403,7 @@ async function createIssue(message: ForwardableEmailMessage, env: Env, octokit: 
 			const safeName = attachment.filename.replace(/[^a-zA-Z0-9.-]/g, '_');
 			const uniqueFileName = `${timestamp}_${safeName}`;
 			
-			const imageUrl = await uploadImageToGitHub(uniqueFileName, attachment.data, env, octokit);
+			const imageUrl = await uploadImageToImgur(uniqueFileName, attachment.data);
 			if (imageUrl) {
 				return {
 					originalName: attachment.filename,
@@ -468,8 +471,10 @@ async function createIssue(message: ForwardableEmailMessage, env: Env, octokit: 
 			}
 		}
 		
-		await octokit.request('POST /repos/{owner}/{repo}/issues', issueParams);
-		console.log('Issue created successfully');
+		// Create the GitHub issue
+		const response = await octokit.request('POST /repos/{owner}/{repo}/issues', issueParams);
+		
+		console.log('Issue created successfully:', response.data.html_url);
 		
 	} catch (error) {
 		throw new CreateIssueError('Unable to parse email message contents or create GitHub issue', error as any);

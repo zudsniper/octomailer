@@ -1,7 +1,8 @@
 {
 	"name": "octomailer",
-	"version": "0.4.0",
-	"private": true,
+	"version": "1.0.0",
+	"author": "zudsniper",
+	"private": false,
 	"scripts": {
 		"deploy": "wrangler deploy",
 		"dev": "wrangler dev",
@@ -16,6 +17,7 @@
 		"wrangler": "^4.27.0"
 	},
 	"dependencies": {
-		"@octokit/core": "^7.0.3"
+		"@octokit/core": "^7.0.3",
+		"postal-mime": "^2.4.4"
 	}
 }
