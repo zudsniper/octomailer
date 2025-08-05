@@ -40,14 +40,66 @@ async function streamToText(stream: ReadableStream<Uint8Array>): Promise<string>
  * Parse email content to extract clean body text
  */
 function parseEmailContent(rawEmail: string): ParsedEmail {
-	// Split headers and body
-	const parts = rawEmail.split('\n\n');
+	// Split the email into lines for processing
+	const lines = rawEmail.split('\n');
+	let headerSection = true;
 	let headers = '';
-	let body = '';
-	
-	if (parts.length >= 2) {
-		headers = parts[0];
-		body = parts.slice(1).join('\n\n');
+	let bodyLines: string[] = [];
+	let currentSection = '';
+	let inTextPlain = false;
+	let inTextHtml = false;
+	let foundContentStart = false;
+
+	// Process each line
+	for (let i = 0; i < lines.length; i++) {
+		const line = lines[i];
+		
+		if (headerSection) {
+			// We're still in the header section
+			if (line.trim() === '') {
+				// Empty line indicates end of headers
+				headerSection = false;
+				continue;
+			}
+			headers += line + '\n';
+		} else {
+			// We're in the body section
+			if (line.includes('Content-Type: text/plain')) {
+				inTextPlain = true;
+				inTextHtml = false;
+				foundContentStart = false;
+				continue;
+			} else if (line.includes('Content-Type: text/html')) {
+				inTextHtml = true;
+				inTextPlain = false;
+				foundContentStart = false;
+				continue;
+			} else if (line.startsWith('Content-Type:') || line.startsWith('Content-Transfer-Encoding:')) {
+				// Skip other content headers
+				continue;
+			} else if (line.trim() === '' && (inTextPlain || inTextHtml) && !foundContentStart) {
+				// Empty line after content-type headers indicates start of actual content
+				foundContentStart = true;
+				continue;
+			} else if (line.startsWith('--') && line.includes('--')) {
+				// MIME boundary - reset flags
+				inTextPlain = false;
+				inTextHtml = false;
+				foundContentStart = false;
+				continue;
+			}
+			
+			// If we're in a text section and have found the content start, add the line
+			if ((inTextPlain || (!inTextPlain && !inTextHtml)) && foundContentStart) {
+				bodyLines.push(line);
+			} else if (inTextHtml && foundContentStart) {
+				// For HTML content, we'll process it later
+				bodyLines.push(line);
+			} else if (!inTextPlain && !inTextHtml && !line.startsWith('Content-') && line.trim() !== '') {
+				// If we haven't found specific content types, but this looks like content
+				bodyLines.push(line);
+			}
+		}
 	}
 
 	// Extract From header
@@ -56,62 +108,25 @@ function parseEmailContent(rawEmail: string): ParsedEmail {
 
 	// Extract Subject header
 	const subjectMatch = headers.match(/^Subject:\s*(.+)$/m);
-	const subject = subjectMatch ? subjectMatch[1].trim() : 'Email to Issue';
-
-	// Handle multipart content
-	if (body.includes('Content-Type: multipart')) {
-		// Find boundary
-		const boundaryMatch = body.match(/boundary="([^"]+)"/i);
-		if (boundaryMatch) {
-			const boundary = boundaryMatch[1];
-			const parts = body.split(`--${boundary}`);
-			
-			// Look for text/plain part first, fallback to text/html
-			let textPart = '';
-			let htmlPart = '';
-			
-			for (const part of parts) {
-				if (part.includes('Content-Type: text/plain')) {
-					// Extract content after headers
-					const contentMatch = part.split('\n\n');
-					if (contentMatch.length >= 2) {
-						textPart = contentMatch.slice(1).join('\n\n').trim();
-					}
-				} else if (part.includes('Content-Type: text/html')) {
-					// Extract HTML content and convert basic formatting
-					const contentMatch = part.split('\n\n');
-					if (contentMatch.length >= 2) {
-						htmlPart = contentMatch.slice(1).join('\n\n').trim();
-					}
-				}
-			}
-			
-			// Prefer plain text, fallback to converted HTML
-			body = textPart || convertHtmlToMarkdown(htmlPart);
-		}
-	}
+	const subject = subjectMatch ? subjectMatch[1].trim() : '';
 
 	// Clean up the body
-	body = body.replace(/--[0-9a-f]+--/g, '').trim();
+	let body = bodyLines.join('\n').trim();
 	
-	// If body is still empty or mostly headers, try a different approach
-	if (!body || body.length < 10) {
-		// Look for the actual message content after all headers
-		const lines = rawEmail.split('\n');
-		let inBody = false;
-		let bodyLines: string[] = [];
-		
-		for (const line of lines) {
-			if (inBody) {
-				if (!line.startsWith('--') || line.includes('Content-Type')) {
-					bodyLines.push(line);
-				}
-			} else if (line.trim() === '' && bodyLines.length === 0) {
-				inBody = true;
-			}
-		}
-		
-		body = bodyLines.join('\n').trim();
+	// Remove MIME boundaries and clean up
+	body = body
+		.replace(/--[0-9a-f]+--/g, '')
+		.replace(/^Content-Type:.*$/gm, '')
+		.replace(/^Content-Transfer-Encoding:.*$/gm, '')
+		.replace(/^\s*$/gm, '') // Remove empty lines
+		.split('\n')
+		.filter(line => line.trim() !== '')
+		.join('\n')
+		.trim();
+
+	// If the body looks like HTML, convert it
+	if (body.includes('<') && body.includes('>')) {
+		body = convertHtmlToMarkdown(body);
 	}
 
 	return { body, from, subject };
