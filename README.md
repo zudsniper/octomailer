@@ -150,12 +150,17 @@ Octomailer follows a simple, efficient flow:
    - Email subject as the issue title
    - Email body as the issue description
    - Sender information and metadata as labels/comments
-4. **Instant Tracking**: Your email request is now a trackable GitHub issue
+4. **Image Processing**: Image attachments are automatically uploaded to Imgur and embedded in the issue
+5. **Instant Tracking**: Your email request is now a trackable GitHub issue
 
 ## Key Features & Benefits
 
 - **🚀 Serverless Architecture**: Zero infrastructure management with Cloudflare Workers
 - **📧 Email-to-Issue Conversion**: Seamlessly transform emails into structured GitHub issues
+- **🖼️ Image Attachment Support**: Automatically uploads image attachments to Imgur and embeds them in issues
+- **📝 Smart Email Parsing**: Advanced MIME parsing with `postal-mime` for multipart emails
+- **🧹 Clean Content Processing**: Removes email headers, MIME boundaries, and image placeholders
+- **👤 GitHub User Detection**: Automatically identifies GitHub users by email and adds attribution
 - **⚡ Real-time Processing**: Instant issue creation as emails arrive
 - **🔒 Secure & Reliable**: Built on Cloudflare's global network with enterprise-grade security
 - **💰 Cost-Effective**: Pay only for what you use with Cloudflare's pricing model
@@ -225,6 +230,44 @@ The following scripts are available in the project:
   ```sh
   npm run cf-typegen
   ```
+
+## Advanced Features
+
+### Image Attachment Processing
+
+Octomailer automatically handles image attachments in emails with sophisticated processing:
+
+- **Automatic Detection**: Detects image attachments (JPEG, PNG, GIF, etc.) in multipart emails
+- **Imgur Integration**: Uploads images anonymously to Imgur for reliable hosting
+- **Issue Embedding**: Embeds uploaded images directly in GitHub issues using Markdown syntax
+- **Content-ID Replacement**: Replaces inline image references (`cid:`) with actual image URLs
+- **Clean Presentation**: Removes image placeholder text like `[image: filename.png]` from issue body
+
+### Smart Email Parsing
+
+The service uses advanced email parsing techniques:
+
+- **MIME Support**: Full support for multipart MIME emails using `postal-mime` library
+- **Content Type Detection**: Intelligently handles both plain text and HTML email content
+- **HTML to Markdown**: Converts HTML emails to clean Markdown format
+- **Header Extraction**: Properly extracts email headers (From, Subject, etc.)
+- **Content Cleaning**: Removes MIME boundaries, headers, and email artifacts
+
+### GitHub User Attribution
+
+Octomailer can identify and attribute GitHub users:
+
+- **Email Matching**: Matches sender email addresses to GitHub user accounts
+- **Repository Access**: Checks repository collaborators and organization members
+- **Automatic Attribution**: Adds `@mention` attribution for recognized users
+- **Smart Labeling**: Adds `member-email` label for emails from known contributors
+
+### Error Handling & Logging
+
+- **Comprehensive Logging**: Detailed debug logs for troubleshooting email processing
+- **Graceful Failures**: Continues processing even if individual components fail
+- **Error Context**: Provides detailed error information for debugging
+- **Async Processing**: Uses Cloudflare Workers' `waitUntil` for reliable async operations
 
 ## Testing
 
