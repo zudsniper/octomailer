@@ -44,8 +44,8 @@ function parseEmailContent(rawEmail: string): ParsedEmail {
 	const lines = rawEmail.split('\n');
 	let headerSection = true;
 	let headers = '';
-	let bodyLines: string[] = [];
-	let currentSection = '';
+	let textPlainLines: string[] = [];
+	let textHtmlLines: string[] = [];
 	let inTextPlain = false;
 	let inTextHtml = false;
 	let foundContentStart = false;
@@ -89,15 +89,11 @@ function parseEmailContent(rawEmail: string): ParsedEmail {
 				continue;
 			}
 			
-			// If we're in a text section and have found the content start, add the line
-			if ((inTextPlain || (!inTextPlain && !inTextHtml)) && foundContentStart) {
-				bodyLines.push(line);
+			// Collect content into separate arrays
+			if (inTextPlain && foundContentStart) {
+				textPlainLines.push(line);
 			} else if (inTextHtml && foundContentStart) {
-				// For HTML content, we'll process it later
-				bodyLines.push(line);
-			} else if (!inTextPlain && !inTextHtml && !line.startsWith('Content-') && line.trim() !== '') {
-				// If we haven't found specific content types, but this looks like content
-				bodyLines.push(line);
+				textHtmlLines.push(line);
 			}
 		}
 	}
@@ -110,24 +106,41 @@ function parseEmailContent(rawEmail: string): ParsedEmail {
 	const subjectMatch = headers.match(/^Subject:\s*(.+)$/m);
 	const subject = subjectMatch ? subjectMatch[1].trim() : '';
 
-	// Clean up the body
-	let body = bodyLines.join('\n').trim();
-	
-	// Remove MIME boundaries and clean up
+	// Choose the best content: prefer plain text, fallback to HTML
+	let body = '';
+	if (textPlainLines.length > 0) {
+		// Use plain text content
+		body = textPlainLines.join('\n').trim();
+	} else if (textHtmlLines.length > 0) {
+		// Convert HTML content to markdown
+		const htmlContent = textHtmlLines.join('\n').trim();
+		body = convertHtmlToMarkdown(htmlContent);
+	} else {
+		// Fallback: try to extract any text content
+		const fallbackLines = rawEmail.split('\n');
+		let bodyStart = false;
+		const contentLines: string[] = [];
+		
+		for (const line of fallbackLines) {
+			if (bodyStart && !line.startsWith('Content-') && !line.startsWith('--') && line.trim() !== '') {
+				contentLines.push(line);
+			} else if (line.trim() === '' && !bodyStart) {
+				bodyStart = true;
+			}
+		}
+		
+		body = contentLines.join('\n').trim();
+	}
+
+	// Final cleanup
 	body = body
 		.replace(/--[0-9a-f]+--/g, '')
 		.replace(/^Content-Type:.*$/gm, '')
 		.replace(/^Content-Transfer-Encoding:.*$/gm, '')
-		.replace(/^\s*$/gm, '') // Remove empty lines
 		.split('\n')
 		.filter(line => line.trim() !== '')
 		.join('\n')
 		.trim();
-
-	// If the body looks like HTML, convert it
-	if (body.includes('<') && body.includes('>')) {
-		body = convertHtmlToMarkdown(body);
-	}
 
 	return { body, from, subject };
 }
