@@ -265,8 +265,13 @@ async function createIssue(message: ForwardableEmailMessage, env: Env, octokit: 
 		// Parse the email to extract clean content
 		parsedEmail = parseEmailContent(rawEmailContent);
 		
-		// Use the parsed subject, fallback to header or default
-		const messageTitle = parsedEmail.subject || message.headers.get('subject') || 'Email to Issue';
+		// Check for subject and meaningful body
+		if (!parsedEmail.subject.trim() || !parsedEmail.body.trim()) {
+			console.log('Skipping email due to empty subject or body');
+			return;
+		}
+		
+		const messageTitle = parsedEmail.subject;
 		
 		console.log('Parsed email:', {
 			subject: messageTitle,
