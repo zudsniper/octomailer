@@ -8,9 +8,14 @@ Before setting up Octomailer, you'll need to configure the following environment
 
 ### Required Variables
 
-- **`GITHUB_USERNAME`**: Your GitHub username (e.g., `octocat`)
-- **`GITHUB_REPO`**: The repository name where issues will be created (e.g., `my-project`)
-- **`GITHUB_TOKEN`**: A GitHub personal access token with `repo` scope for creating issues
+- For GitHub mode (default):
+  - **`GITHUB_USERNAME`**: Your GitHub username (e.g., `octocat`)
+  - **`GITHUB_REPO`**: The repository name where issues will be created (e.g., `my-project`)
+  - **`GITHUB_TOKEN`**: A GitHub personal access token with `repo` scope for creating issues
+- For Discord mode:
+  - **`TYPE`**: Set to `discord` to send Discord embeds instead of GitHub issues (defaults to `github`)
+  - **`DISCORD_WEBHOOK_URL`** or **`WEBHOOK_URL`**: Discord webhook URL (prefers `DISCORD_WEBHOOK_URL` if both set)
+  - Optional: **`DISCORD_MENTION_ROLE_ID`**: Discord role ID to ping (adds `<@&ROLE_ID>` to the message)
 
 ### Local Development Setup
 
@@ -21,6 +26,10 @@ For local development, create a `.dev.vars` file in the project root:
 GITHUB_USERNAME=your-github-username
 GITHUB_REPO=your-repository-name
 GITHUB_TOKEN=your-personal-access-token
+# TYPE can be switched to "discord" to send embeds
+# TYPE=discord
+# DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/...
+# DISCORD_MENTION_ROLE_ID=123456789012345678
 ```
 
 **Important:** Never commit `.dev.vars` to version control. This file is already included in `.gitignore`.
@@ -40,6 +49,11 @@ Set up your secrets using the Wrangler CLI:
 wrangler secret put GITHUB_USERNAME
 wrangler secret put GITHUB_REPO  
 wrangler secret put GITHUB_TOKEN
+
+# For Discord mode (if using TYPE=discord)
+wrangler secret put DISCORD_WEBHOOK_URL
+wrangler secret put DISCORD_MENTION_ROLE_ID # optional
+wrangler secret put TYPE # set to "discord"
 ```
 
 Alternatively, you can pipe values directly:
