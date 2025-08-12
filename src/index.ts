@@ -16,6 +16,13 @@ class MissingEnvVariablesError extends Error {
 	}
 }
 
+class MissingDiscordEnvVariablesError extends Error {
+	constructor() {
+		super('DISCORD_WEBHOOK_URL or WEBHOOK_URL must be set for TYPE=discord');
+		this.name = 'MissingDiscordEnvVariablesError';
+	}
+}
+
 interface EmailAttachment {
 	filename: string;
 	contentType: string;
@@ -481,10 +488,105 @@ async function createIssue(message: ForwardableEmailMessage, env: Env, octokit: 
 	}
 }
 
+async function sendDiscordNotification(message: ForwardableEmailMessage, env: Env, webhookUrl: string): Promise<void> {
+	// Parse raw email and attachments
+	const rawEmailContent = await streamToText(message.raw);
+	const parsedEmail = await parseEmailContent(rawEmailContent);
+
+	if (!parsedEmail.subject.trim() || !parsedEmail.body.trim()) {
+		console.log('Skipping email due to empty subject or body');
+		return;
+	}
+
+	const senderEmail = extractEmailAddress(parsedEmail.from);
+
+	// Upload image attachments to Imgur for stable URLs
+	const imageUploadPromises = parsedEmail.attachments.map(async (attachment) => {
+		const timestamp = Date.now();
+		const safeName = attachment.filename.replace(/[^a-zA-Z0-9.-]/g, '_');
+		const uniqueFileName = `${timestamp}_${safeName}`;
+		const imageUrl = await uploadImageToImgur(uniqueFileName, attachment.data);
+		return imageUrl
+			? { originalName: attachment.filename, uniqueFileName, imageUrl, cid: attachment.cid }
+			: null;
+	});
+	const uploadedImages = (await Promise.all(imageUploadPromises)).filter(Boolean) as {
+		originalName: string;
+		uniqueFileName: string;
+		imageUrl: string;
+		cid?: string;
+	}[];
+
+	let description = parsedEmail.body;
+	if (uploadedImages.length > 1) {
+		description += '\n\nAttachments:';
+		for (const img of uploadedImages.slice(1)) {
+			description += `\n- ${img.originalName}: ${img.imageUrl}`;
+		}
+	}
+
+	const authorName = parsedEmail.from || senderEmail || 'Unknown sender';
+	const embed: any = {
+		title: parsedEmail.subject.slice(0, 256),
+		description: description.slice(0, 4096),
+		color: 0x2b6cb0,
+		author: { name: authorName.slice(0, 256) },
+		fields: [
+			{ name: 'From', value: senderEmail || parsedEmail.from || 'Unknown', inline: true },
+		],
+		footer: { text: 'octomailer • Cloudflare Workers' },
+		timestamp: new Date().toISOString(),
+	};
+
+	if (uploadedImages.length > 0) {
+		embed.image = { url: uploadedImages[0]!.imageUrl };
+	}
+
+	const mentionRoleId = env.DISCORD_MENTION_ROLE_ID;
+	const content = mentionRoleId ? `<@&${mentionRoleId}>` : undefined;
+
+	const payload = { content, embeds: [embed] };
+
+	const resp = await fetch(webhookUrl, {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify(payload),
+	});
+
+	if (!resp.ok) {
+		const text = await resp.text();
+		throw new Error(`Discord webhook failed: ${resp.status} ${text}`);
+	}
+}
+
 export default {
 	async email(message: ForwardableEmailMessage, env: Env, ctx: ExecutionContext): Promise<void> {
 		try {
-			// Validate required environment variables
+			const mode = (env.TYPE || 'github').toLowerCase();
+
+			if (mode === 'discord') {
+				const webhookUrl = env.DISCORD_WEBHOOK_URL || env.WEBHOOK_URL;
+				if (!webhookUrl) {
+					const error = new MissingDiscordEnvVariablesError();
+					console.error('Missing Discord webhook:', error.message);
+					throw error;
+				}
+
+				const discordPromise = sendDiscordNotification(message, env, webhookUrl)
+					.then(() => {
+						console.log('Email processed successfully and Discord embed sent');
+					})
+					.catch((error) => {
+						console.error('Failed to send Discord notification:', error);
+						throw error;
+					});
+
+				ctx.waitUntil(discordPromise);
+				await discordPromise;
+				return;
+			}
+
+			// Default GitHub path
 			const user = env.GITHUB_USERNAME;
 			const repo = env.GITHUB_REPO;
 			const token = env.GITHUB_TOKEN;
@@ -495,31 +597,21 @@ export default {
 				throw error;
 			}
 
-			// Initialize Octokit
-			const octokit = new Octokit({
-				auth: token,
-			});
+			const octokit = new Octokit({ auth: token });
 
-			// Process the email and create GitHub issue
-			// Use ctx.waitUntil to ensure the async operation completes even if the handler returns
 			const issueCreationPromise = createIssue(message, env, octokit)
 				.then(() => {
 					console.log('Email processed successfully and GitHub issue created');
 				})
 				.catch((error) => {
 					console.error('Failed to process email:', error);
-					// Log additional error details for debugging
 					if (error instanceof CreateIssueError) {
 						console.error('Original error:', error.originalError);
 					}
-					// Re-throw to ensure the email handler reports failure
 					throw error;
 				});
 
-			// Use waitUntil to ensure the issue creation completes
 			ctx.waitUntil(issueCreationPromise);
-
-			// Wait for the operation to complete before returning
 			await issueCreationPromise;
 		} catch (error) {
 			// Log the error for debugging purposes
