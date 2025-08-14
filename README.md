@@ -262,6 +262,26 @@ pnpm run deploy:interactive -- --name my-worker --type github
 - Discord mode: prompts for `DISCORD_WEBHOOK_URL` and optional `DISCORD_MENTION_ROLE_ID`. Stores as Wrangler secrets and sets `TYPE=discord`.
 - Finally runs `wrangler deploy --name <worker-name>`.
 
+Non-interactive (CI) usage:
+
+```sh
+node scripts/deploy.js --ci \
+  --name my-worker \
+  --type github \
+  --gh-user $GITHUB_USERNAME \
+  --gh-repo $GITHUB_REPO \
+  --gh-token $GITHUB_TOKEN
+
+# Or for Discord
+node scripts/deploy.js --ci \
+  --name my-worker \
+  --type discord \
+  --webhook $DISCORD_WEBHOOK_URL \
+  --role-id $DISCORD_MENTION_ROLE_ID
+```
+
+Alternatively, set env vars: `WORKER_NAME`, `TYPE`, `GITHUB_USERNAME`, `GITHUB_REPO`, `GITHUB_TOKEN`, `DISCORD_WEBHOOK_URL` (or `WEBHOOK_URL`), `DISCORD_MENTION_ROLE_ID`.
+
 ## Advanced Features
 
 ### Image Attachment Processing
