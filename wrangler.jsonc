@@ -1,0 +1,11 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "octomailer",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-01-01",
+  "account_id": "54460b765d7a0ef8299d956c784f14d7",
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 1.0
+  }
+}

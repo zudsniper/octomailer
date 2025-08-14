@@ -6,6 +6,14 @@ declare namespace Cloudflare {
 		GITHUB_USERNAME: string;
 		GITHUB_REPO: string;
 		GITHUB_TOKEN: string;
+		/** Optional: select behavior ("github" | "discord"). Defaults to github. */
+		TYPE?: string;
+		/** Optional: Discord webhook URL (generic name). */
+		WEBHOOK_URL?: string;
+		/** Optional: Discord webhook URL (preferred, specific name). */
+		DISCORD_WEBHOOK_URL?: string;
+		/** Optional: Role ID to mention in Discord. */
+		DISCORD_MENTION_ROLE_ID?: string;
 	}
 }
 interface Env extends Cloudflare.Env {}

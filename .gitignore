@@ -170,3 +170,7 @@ dist
 
 .dev.vars
 .wrangler/
+
+# do not include wrangler files, as we generate them with deployment script. This line may be modified based on user preference.
+#    The newest version of wranger files are .jsonc, but .toml is still suppported. This application generates .jsonc
+wranger.jsonc
