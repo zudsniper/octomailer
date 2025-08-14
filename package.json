@@ -9,7 +9,8 @@
 		"start": "wrangler dev",
 		"test": "vitest",
 		"cf-typegen": "wrangler types",
-		"deploy:interactive": "node scripts/deploy.js"
+		"deploy:interactive": "node scripts/deploy.js",
+		"deploy:interactive:pnpm": "node scripts/deploy.js"
 	},
 	"devDependencies": {
 		"@cloudflare/vitest-pool-workers": "^0.8.59",

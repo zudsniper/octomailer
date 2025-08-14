@@ -245,6 +245,23 @@ The following scripts are available in the project:
   npm run cf-typegen
   ```
 
+### Interactive Deploy CLI
+
+Use the guided CLI to set secrets and deploy a custom-named Worker:
+
+```sh
+# npm
+npm run deploy:interactive -- --name my-worker --type discord
+
+# pnpm
+pnpm run deploy:interactive -- --name my-worker --type github
+```
+
+- Flags: `--name|-n <worker-name>`, `--type|-t <github|discord>`.
+- GitHub mode: prompts for `GITHUB_USERNAME`, `GITHUB_REPO`, and a PAT (link provided with `repo` scope). Stores as Wrangler secrets and sets `TYPE=github`.
+- Discord mode: prompts for `DISCORD_WEBHOOK_URL` and optional `DISCORD_MENTION_ROLE_ID`. Stores as Wrangler secrets and sets `TYPE=discord`.
+- Finally runs `wrangler deploy --name <worker-name>`.
+
 ## Advanced Features
 
 ### Image Attachment Processing
