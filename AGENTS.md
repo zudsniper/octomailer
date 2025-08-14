@@ -3,7 +3,7 @@
 ## Project Structure & Module Organization
 - `src/index.ts`: Cloudflare Worker entry handling the `email` event.
 - `test/index.spec.ts`: Vitest tests for parsing and GitHub issue creation.
-- Config: `wrangler.toml` (worker name, entry, dates), `vitest.config.ts` (Cloudflare workers pool), `tsconfig.json` (strict TS), `.editorconfig`, `.prettierrc`.
+- Config: `wrangler.jsonc` (worker name, entry, dates), `vitest.config.ts` (Cloudflare workers pool), `tsconfig.json` (strict TS), `.editorconfig`, `.prettierrc`.
 - Types/assets: `worker-configuration.d.ts` augments Worker env; no app assets folder.
 
 ## Build, Test, and Development Commands
@@ -21,7 +21,7 @@
 - Naming: files `kebab-case.ts` (e.g., `index.ts`), tests `*.spec.ts`; types/interfaces `PascalCase`, functions/vars `camelCase`, constants `SCREAMING_SNAKE_CASE`.
 
 ## Testing Guidelines
-- Framework: Vitest with `@cloudflare/vitest-pool-workers` (uses `wrangler.toml`).
+- Framework: Vitest with `@cloudflare/vitest-pool-workers` (uses `wrangler.jsonc`).
 - Location: place tests under `test/` named `*.spec.ts`.
 - Run: `npm test`. For coverage locally: `npx vitest --coverage` (optional).
 - Write focused unit tests for parsing, attachment handling, and issue body construction; mock network calls to GitHub/Imgur.
@@ -37,4 +37,4 @@
 - Do not log tokens or raw emails; redact in tests. Never commit credentials.
 
 ## Architecture Overview
-- Flow: Email → Worker (`src/index.ts`) → parse (PostalMime) → upload images (Imgur) → create issue (Octokit). Configuration in `wrangler.toml`.
+- Flow: Email → Worker (`src/index.ts`) → parse (PostalMime) → upload images (Imgur) → create issue (Octokit). Configuration in `wrangler.jsonc`.

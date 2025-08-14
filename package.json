@@ -4,13 +4,12 @@
 	"author": "zudsniper",
 	"private": false,
 	"scripts": {
-		"deploy": "wrangler deploy",
+		"deploy": "node scripts/deploy.js",
 		"dev": "wrangler dev",
 		"start": "wrangler dev",
 		"test": "vitest",
 		"cf-typegen": "wrangler types",
-		"deploy:interactive": "node scripts/deploy.js",
-		"deploy:interactive:pnpm": "node scripts/deploy.js"
+		"deploy:ci": "wrangler deploy",
 	},
 	"devDependencies": {
 		"@cloudflare/vitest-pool-workers": "^0.8.59",

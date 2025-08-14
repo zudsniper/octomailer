@@ -85,7 +85,7 @@ You can also set secrets through the Cloudflare Dashboard:
 
 By default, the worker is named "octomailer". To change it to something more descriptive:
 
-1. Edit the `wrangler.toml` file in your project root
+1. Edit the `wrangler.jsonc` file in your project root
 2. Update the `name` field:
 
 ```toml
@@ -104,7 +104,7 @@ head_sampling_rate = 1.0
 
 If you have access to multiple Cloudflare accounts, you need to specify which account to deploy to:
 
-**Option 1: Add account_id to wrangler.toml (Recommended)**
+**Option 1: Add account_id to wrangler.jsonc (Recommended)**
 
 ```toml
 #:schema node_modules/wrangler/config-schema.json
@@ -135,7 +135,7 @@ wrangler deploy
 3. The Account ID is displayed in the right sidebar under **Account ID**
 4. Or visit: `https://dash.cloudflare.com/profile` and copy the Account ID
 
-**Note**: The account ID is not a secret—it's essentially a public key that identifies your Cloudflare account. However, for organization purposes, it's often cleaner to include it in `wrangler.toml`.
+**Note**: The account ID is not a secret—it's essentially a public key that identifies your Cloudflare account. However, for organization purposes, it's often cleaner to include it in `wrangler.jsonc`.
 
 ### Creating a GitHub Personal Access Token
 
