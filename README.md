@@ -8,9 +8,14 @@ Before setting up Octomailer, you'll need to configure the following environment
 
 ### Required Variables
 
-- **`GITHUB_USERNAME`**: Your GitHub username (e.g., `octocat`)
-- **`GITHUB_REPO`**: The repository name where issues will be created (e.g., `my-project`)
-- **`GITHUB_TOKEN`**: A GitHub personal access token with `repo` scope for creating issues
+- For GitHub mode (default):
+  - **`GITHUB_USERNAME`**: Your GitHub username (e.g., `octocat`)
+  - **`GITHUB_REPO`**: The repository name where issues will be created (e.g., `my-project`)
+  - **`GITHUB_TOKEN`**: A GitHub personal access token with `repo` scope for creating issues
+- For Discord mode:
+  - **`TYPE`**: Set to `discord` to send Discord embeds instead of GitHub issues (defaults to `github`)
+  - **`DISCORD_WEBHOOK_URL`** or **`WEBHOOK_URL`**: Discord webhook URL (prefers `DISCORD_WEBHOOK_URL` if both set)
+  - Optional: **`DISCORD_MENTION_ROLE_ID`**: Discord role ID to ping (adds `<@&ROLE_ID>` to the message)
 
 ### Local Development Setup
 
@@ -21,6 +26,10 @@ For local development, create a `.dev.vars` file in the project root:
 GITHUB_USERNAME=your-github-username
 GITHUB_REPO=your-repository-name
 GITHUB_TOKEN=your-personal-access-token
+# TYPE can be switched to "discord" to send embeds
+# TYPE=discord
+# DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/...
+# DISCORD_MENTION_ROLE_ID=123456789012345678
 ```
 
 **Important:** Never commit `.dev.vars` to version control. This file is already included in `.gitignore`.
@@ -40,6 +49,11 @@ Set up your secrets using the Wrangler CLI:
 wrangler secret put GITHUB_USERNAME
 wrangler secret put GITHUB_REPO  
 wrangler secret put GITHUB_TOKEN
+
+# For Discord mode (if using TYPE=discord)
+wrangler secret put DISCORD_WEBHOOK_URL
+wrangler secret put DISCORD_MENTION_ROLE_ID # optional
+wrangler secret put TYPE # set to "discord"
 ```
 
 Alternatively, you can pipe values directly:
@@ -71,7 +85,7 @@ You can also set secrets through the Cloudflare Dashboard:
 
 By default, the worker is named "octomailer". To change it to something more descriptive:
 
-1. Edit the `wrangler.toml` file in your project root
+1. Edit the `wrangler.jsonc` file in your project root
 2. Update the `name` field:
 
 ```toml
@@ -90,7 +104,7 @@ head_sampling_rate = 1.0
 
 If you have access to multiple Cloudflare accounts, you need to specify which account to deploy to:
 
-**Option 1: Add account_id to wrangler.toml (Recommended)**
+**Option 1: Add account_id to wrangler.jsonc (Recommended)**
 
 ```toml
 #:schema node_modules/wrangler/config-schema.json
@@ -121,7 +135,7 @@ wrangler deploy
 3. The Account ID is displayed in the right sidebar under **Account ID**
 4. Or visit: `https://dash.cloudflare.com/profile` and copy the Account ID
 
-**Note**: The account ID is not a secret—it's essentially a public key that identifies your Cloudflare account. However, for organization purposes, it's often cleaner to include it in `wrangler.toml`.
+**Note**: The account ID is not a secret—it's essentially a public key that identifies your Cloudflare account. However, for organization purposes, it's often cleaner to include it in `wrangler.jsonc`.
 
 ### Creating a GitHub Personal Access Token
 
@@ -230,6 +244,43 @@ The following scripts are available in the project:
   ```sh
   npm run cf-typegen
   ```
+
+### Interactive Deploy CLI
+
+Use the guided CLI to set secrets and deploy a custom-named Worker:
+
+```sh
+# npm
+npm run deploy:interactive -- --name my-worker --type discord
+
+# pnpm
+pnpm run deploy:interactive -- --name my-worker --type github
+```
+
+- Flags: `--name|-n <worker-name>`, `--type|-t <github|discord>`.
+- GitHub mode: prompts for `GITHUB_USERNAME`, `GITHUB_REPO`, and a PAT (link provided with `repo` scope). Stores as Wrangler secrets and sets `TYPE=github`.
+- Discord mode: prompts for `DISCORD_WEBHOOK_URL` and optional `DISCORD_MENTION_ROLE_ID`. Stores as Wrangler secrets and sets `TYPE=discord`.
+- Finally runs `wrangler deploy --name <worker-name>`.
+
+Non-interactive (CI) usage:
+
+```sh
+node scripts/deploy.js --ci \
+  --name my-worker \
+  --type github \
+  --gh-user $GITHUB_USERNAME \
+  --gh-repo $GITHUB_REPO \
+  --gh-token $GITHUB_TOKEN
+
+# Or for Discord
+node scripts/deploy.js --ci \
+  --name my-worker \
+  --type discord \
+  --webhook $DISCORD_WEBHOOK_URL \
+  --role-id $DISCORD_MENTION_ROLE_ID
+```
+
+Alternatively, set env vars: `WORKER_NAME`, `TYPE`, `GITHUB_USERNAME`, `GITHUB_REPO`, `GITHUB_TOKEN`, `DISCORD_WEBHOOK_URL` (or `WEBHOOK_URL`), `DISCORD_MENTION_ROLE_ID`.
 
 ## Advanced Features
 
